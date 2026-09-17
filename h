@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // GITHUB PAYLOAD SCRIPT
+    🕷️ TARANTULA // GITHUB PAYLOAD LOADER
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -7,7 +7,7 @@
 local SERVER_URL  = "https://winter-limit-acb5.breathness69.workers.dev/verify"
 local AUTH_HEADER = "TARANTULA-EX-v1"
 
--- Grab and trim key
+-- Grab the key defined in the loader
 local rawKey = loader_key 
     or (getgenv and getgenv().loader_key) 
     or _G.loader_key
@@ -17,7 +17,7 @@ if not rawKey then
     return
 end
 
--- Auto-trim any accidental spaces or tabs
+-- Strip any accidental leading/trailing spaces or tabs
 local LICENSE_KEY = tostring(rawKey):gsub("^%s*(.-)%s*$", "%1")
 
 if #LICENSE_KEY == 0 then
@@ -89,7 +89,7 @@ pcall(function()
     rbxUsername = game:GetService("Players").LocalPlayer.Name
 end)
 
--- 4. Whitelist Verification Gate
+-- 4. Whitelist Verification Request
 print("[tarantula] Verifying license...")
 
 local queryUrl = SERVER_URL 
@@ -122,7 +122,7 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- =========================================================
--- 5. RUN PROTECTED SCRIPT PAYLOAD (From Cloudflare Worker)
+-- 5. RUN PROTECTED SCRIPT PAYLOAD (From Cloudflare Dashboard)
 -- =========================================================
 local executePayload, compileErr = loadstring(response.Body)
 if not executePayload then
