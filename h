@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // FULL EXECUTION & PRINT MONITOR
+    🕷️ TARANTULA // STRICT PRINT & EXECUTION SURVEILLANCE
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -78,6 +78,7 @@ local function reportTamperAndHalt(reason)
     if isBlacklisted then return end
     isBlacklisted = true
 
+    -- Clean string (replace spaces with underscores) so executor HTTP never fails
     local cleanReason = tostring(reason):gsub("%s+", "_"):gsub("[^%w_%-]", "")
     
     pcall(function()
@@ -95,26 +96,29 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. REAL-TIME PRINT & LOG AUDITOR (Detects prints before, during & after)
+-- 5. TOTAL PRINT SURVEILLANCE (LogService)
 -- ====================================================================
 local LogService = game:GetService("LogService")
+local payloadExecuting = false
 
--- Whitelist of allowed outputs (loader logs & your authentic payload)
-local function isAllowedOutput(msg)
+-- Whitelist filter: Only allows official [tarantula] logs & Roblox engine startup logs
+local function isAuthorizedPrint(msg)
+    if payloadExecuting then return true end -- Authentic payload is allowed to print anything
     if msg:find("%[tarantula%]") then return true end
-    if msg:find("fabian output") then return true end -- Your authentic Protected Script Payload
-    if msg:find("The Current Identity") or msg:find("Roblox Version") then return true end -- Roblox internal
+    -- Ignore internal Roblox engine spam
+    if msg:find("The Current Identity") or msg:find("Roblox Version") or msg:find("Replication") or msg:find("HttpTrace") then
+        return true
+    end
     return false
 end
 
--- 1. Check prints that happened right BEFORE the loader ran:
+-- 1. DETECT PRINTS EXECUTED BEFORE THE LOADER:
 pcall(function()
     local logs = LogService:GetLogHistory()
     if #logs > 0 then
-        -- Inspect the last message sent to console
         local lastMsg = tostring(logs[#logs].message or "")
-        if not isAllowedOutput(lastMsg) and #lastMsg > 0 then
-            reportTamperAndHalt("Unauthorized_print_before_loader_" .. lastMsg:sub(1, 20))
+        if not isAuthorizedPrint(lastMsg) and #lastMsg > 0 then
+            reportTamperAndHalt("PrePrint_" .. lastMsg:sub(1, 30))
             return
         end
     end
@@ -122,14 +126,15 @@ end)
 
 if isBlacklisted then return end
 
--- 2. Hook LogService.MessageOut to catch any print happening DURING or AFTER execution:
+-- 2. DETECT PRINTS EXECUTED DURING OR AFTER THE LOADER:
 LogService.MessageOut:Connect(function(message, messageType)
-    if not isAllowedOutput(tostring(message)) then
-        reportTamperAndHalt("Unauthorized_print_detected_" .. tostring(message):sub(1, 20))
+    local msgStr = tostring(message or "")
+    if not isAuthorizedPrint(msgStr) then
+        reportTamperAndHalt("LivePrint_" .. msgStr:sub(1, 30))
     end
 end)
 
--- Check function hooks
+-- Check core function hooks
 local sensitiveFunctions = {
     print = print,
     warn = warn,
@@ -176,7 +181,7 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- ====================================================================
--- 7. EXECUTE SEALED PAYLOAD
+-- 7. STRICT PAYLOAD EXECUTION
 -- ====================================================================
 local token = response.Headers and (response.Headers["x-tarantula-token"] or response.Headers["X-Tarantula-Token"])
 if not token then
@@ -192,7 +197,10 @@ if not executePayload then
     return
 end
 
+-- Temporarily authorize prints for the authentic payload
+payloadExecuting = true
 local execOk, execErr = pcall(executePayload)
+payloadExecuting = false
 
 if not getgenv or getgenv()._TARANTULA_VALIDATED ~= token then
     reportTamperAndHalt("Unauthorized_or_fake_payload_executed")
