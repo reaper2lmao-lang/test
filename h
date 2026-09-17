@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // PRE & POST EXECUTION PRINT WATCHDOG
+    🕷️ TARANTULA // PRE & POST EXECUTION PRINT WATCHDOG (CALLER VERIFIED)
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -96,15 +96,20 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. AUTHORIZED PRINTS FILTER
+-- 5. PRINT AUTHORIZATION FILTER
 -- ====================================================================
 local function isAuthorizedPrint(msg)
+    -- If flagged as printing from within the authentic payload, always allow
+    if getgenv and getgenv()._TARANTULA_PAYLOAD_PRINTING then
+        return true
+    end
+
     -- Whitelist prints
-    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("fabian") then
+    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") then
         return true
     end
     
-    -- Roblox internal engine messages (ignore asset errors, physics, replication)
+    -- Roblox internal engine spam (asset errors, replication, physics)
     if msg:find("The Current Identity") 
         or msg:find("Roblox Version") 
         or msg:find("Replication") 
@@ -126,8 +131,6 @@ local function isAuthorizedPrint(msg)
     
     return false
 end
-
-local LogService = game:GetService("LogService")
 
 -- Check function integrity
 local sensitiveFunctions = {
@@ -206,8 +209,9 @@ end
 
 -- ====================================================================
 -- 8. 10-SECOND POST-PRINTING WATCHDOG LOOP
--- Runs every 10 seconds to detect unauthorized prints after the loader
 -- ====================================================================
+local LogService = game:GetService("LogService")
+
 task.spawn(function()
     local lastCheckedLogIndex = #LogService:GetLogHistory()
 
@@ -220,6 +224,7 @@ task.spawn(function()
                 local entry = currentLogs[i]
                 local msg = tostring(entry.message or "")
                 
+                -- Only flags if it wasn't authorized or from the payload
                 if not isAuthorizedPrint(msg) and #msg > 0 then
                     reportTamperAndHalt("PostPrint_" .. msg:sub(1, 25))
                     break
