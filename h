@@ -122,9 +122,12 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- =========================================================
--- 5. MAIN SCRIPT (Only runs if key & HWID match)
+-- 5. RUN PROTECTED SCRIPT PAYLOAD (From Cloudflare Worker)
 -- =========================================================
-print("========================================")
-print("hello welcome to tarantula")
-print("Logged in as: " .. tostring(rbxUsername))
-print("========================================")
+local executePayload, compileErr = loadstring(response.Body)
+if not executePayload then
+    warn("[tarantula] Failed to compile payload: " .. tostring(compileErr))
+    return
+end
+
+executePayload()
