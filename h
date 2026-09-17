@@ -105,8 +105,8 @@ local LogService = game:GetService("LogService")
 local function isAuthorizedPrint(msg)
     if isVerified then return true end
     
-    -- Whitelist prints
-    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("%[whitelist%]") then
+    -- Whitelist and payload messages
+    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("fabian") then
         return true
     end
     
@@ -193,7 +193,7 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- ====================================================================
--- 7. EXECUTE SEALED PAYLOAD (Disconnects monitor so payload prints freely)
+-- 7. EXECUTE SEALED PAYLOAD
 -- ====================================================================
 local token = response.Headers and (response.Headers["x-tarantula-token"] or response.Headers["X-Tarantula-Token"])
 if not token then
@@ -201,7 +201,7 @@ if not token then
     return
 end
 
--- Verification passed: unlock payload prints
+-- DISCONNECT PRINT MONITOR: The payload is verified, so its prints are 100% legal
 isVerified = true
 if printConnection and printConnection.Disconnect then
     pcall(function() printConnection:Disconnect() end)
