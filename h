@@ -128,7 +128,7 @@ if not checkRequestIntegrity() then
 end
 
 if not checkKnownTools() then
-    reportTamperAndHalt("Known spy/dumping tool active")
+    reportTamperAndHalt("Known spy or dumping tool active")
     return
 end
 
@@ -163,9 +163,9 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
     return
 end
 
--- ====================================================================
+-- =========================================================
 -- 6. RUN PROTECTED SCRIPT PAYLOAD
--- ====================================================================
+-- =========================================================
 local executePayload, compileErr = loadstring(response.Body)
 if not executePayload then
     warn("[tarantula] Failed to compile payload: " .. tostring(compileErr))
