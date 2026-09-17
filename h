@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // PROTECTED LOADER + ANTI-TAMPER
+    🕷️ TARANTULA // PROTECTED LOADER + ANTI-TAMPER + PAYLOAD ENFORCEMENT
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -71,19 +71,20 @@ local rbxUsername = "Unknown"
 pcall(function() rbxUsername = game:GetService("Players").LocalPlayer.Name end)
 
 -- ====================================================================
--- 4. ANTI-TAMPER / CRACK DETECTIONS
+-- 4. ANTI-TAMPER REPORTING (Auto-Blacklist)
 -- ====================================================================
 local function reportTamperAndHalt(reason)
-    pcall(function()
-        httpRequest({
-            Url = SERVER_URL .. "/report_tamper?key=" .. tostring(LICENSE_KEY) 
-                .. "&hwid=" .. tostring(clientHWID) 
-                .. "&rbx=" .. tostring(rbxUsername) 
-                .. "&reason=" .. tostring(reason),
-            Method = "GET",
-            Headers = { ["x-tarantula-auth"] = AUTH_HEADER }
-        })
-    end)
+    local cleanReason = tostring(reason):gsub("%s+", "_"):gsub("[^%w_%-]", "")
+    
+    httpRequest({
+        Url = SERVER_URL .. "/report_tamper?key=" .. tostring(LICENSE_KEY) 
+            .. "&hwid=" .. tostring(clientHWID) 
+            .. "&rbx=" .. tostring(rbxUsername) 
+            .. "&reason=" .. tostring(cleanReason),
+        Method = "GET",
+        Headers = { ["x-tarantula-auth"] = AUTH_HEADER }
+    })
+    
     print("[tarantula] what u tryna do bud")
 end
 
@@ -107,28 +108,32 @@ local function checkRequestIntegrity()
     return true
 end
 
--- Detection 3: Known HTTP spies / dumping scripts in environment
+-- Detection 3: Known spy / dumping tools in BOTH _G and getgenv()
 local function checkKnownTools()
-    local g = (getgenv and getgenv()) or _G
-    if g.SimpleSpyExecuted or g.HttpSpy or g.Spy or g.Dumper or g.DumpString then
-        return false
+    local envs = { _G }
+    if getgenv then table.insert(envs, getgenv()) end
+    
+    for _, env in ipairs(envs) do
+        if env.SimpleSpyExecuted or env.HttpSpy or env.Spy or env.Dumper or env.DumpString or env.TARANTULA_TEST_TRIGGER then
+            return false
+        end
     end
     return true
 end
 
--- Run detections
+-- Run pre-flight detections
 if not checkLoadstringIntegrity() then
-    reportTamperAndHalt("Hooked loadstring")
+    reportTamperAndHalt("Hooked_loadstring")
     return
 end
 
 if not checkRequestIntegrity() then
-    reportTamperAndHalt("Hooked httpRequest")
+    reportTamperAndHalt("Hooked_httpRequest")
     return
 end
 
 if not checkKnownTools() then
-    reportTamperAndHalt("Known spy or dumping tool active")
+    reportTamperAndHalt("Known_spy_tool_active")
     return
 end
 
@@ -163,13 +168,38 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
     return
 end
 
--- =========================================================
--- 6. RUN PROTECTED SCRIPT PAYLOAD
--- =========================================================
-local executePayload, compileErr = loadstring(response.Body)
-if not executePayload then
-    warn("[tarantula] Failed to compile payload: " .. tostring(compileErr))
+-- ====================================================================
+-- 6. STRICT PAYLOAD VALIDATION & EXECUTION
+-- ====================================================================
+-- Extract dynamic token sent by server header
+local token = response.Headers and (response.Headers["x-tarantula-token"] or response.Headers["X-Tarantula-Token"])
+if not token then
+    reportTamperAndHalt("Missing_server_token")
     return
 end
 
-executePayload()
+-- Pass token into global environment for sealed payload to unlock
+if getgenv then getgenv()._TARANTULA_TOKEN = token end
+
+local executePayload, compileErr = loadstring(response.Body)
+if not executePayload then
+    reportTamperAndHalt("Invalid_payload_structure")
+    return
+end
+
+-- Run the payload
+local execOk, execErr = pcall(executePayload)
+
+-- VERIFY: Did the authentic payload actually execute?
+-- If someone hooked loadstring, substituted their own script, or ran fake code,
+-- _TARANTULA_VALIDATED will NOT match the server token!
+if not getgenv or getgenv()._TARANTULA_VALIDATED ~= token then
+    reportTamperAndHalt("Unauthorized_or_fake_payload_executed")
+    return
+end
+
+-- Cleanup tokens from memory
+if getgenv then
+    getgenv()._TARANTULA_TOKEN = nil
+    getgenv()._TARANTULA_VALIDATED = nil
+end
