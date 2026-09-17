@@ -74,11 +74,12 @@ pcall(function() rbxUsername = game:GetService("Players").LocalPlayer.Name end)
 -- 4. AUTOMATED BLACKLIST REPORTER
 -- ====================================================================
 local isBlacklisted = false
+local isVerified = false
+
 local function reportTamperAndHalt(reason)
-    if isBlacklisted then return end
+    if isBlacklisted or isVerified then return end
     isBlacklisted = true
 
-    -- Clean string (replace spaces with underscores) so executor HTTP never fails
     local cleanReason = tostring(reason):gsub("%s+", "_"):gsub("[^%w_%-]", "")
     
     pcall(function()
@@ -96,23 +97,32 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. TOTAL PRINT SURVEILLANCE (LogService)
+-- 5. PRINT & LOG SURVEILLANCE (Pre-Verification Only)
 -- ====================================================================
 local LogService = game:GetService("LogService")
-local payloadExecuting = false
 
--- Whitelist filter: Only allows official [tarantula] logs & Roblox engine startup logs
+-- Whitelist filter: allows all official whitelist prints and Roblox engine startup logs
 local function isAuthorizedPrint(msg)
-    if payloadExecuting then return true end -- Authentic payload is allowed to print anything
-    if msg:find("%[tarantula%]") then return true end
-    -- Ignore internal Roblox engine spam
-    if msg:find("The Current Identity") or msg:find("Roblox Version") or msg:find("Replication") or msg:find("HttpTrace") then
+    if isVerified then return true end
+    
+    -- Whitelist prints
+    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("%[whitelist%]") then
         return true
     end
+    
+    -- Roblox internal engine messages
+    if msg:find("The Current Identity") 
+        or msg:find("Roblox Version") 
+        or msg:find("Replication") 
+        or msg:find("HttpTrace")
+        or msg:find("CoreGui") then
+        return true
+    end
+    
     return false
 end
 
--- 1. DETECT PRINTS EXECUTED BEFORE THE LOADER:
+-- Check prints executed before the loader:
 pcall(function()
     local logs = LogService:GetLogHistory()
     if #logs > 0 then
@@ -126,15 +136,17 @@ end)
 
 if isBlacklisted then return end
 
--- 2. DETECT PRINTS EXECUTED DURING OR AFTER THE LOADER:
-LogService.MessageOut:Connect(function(message, messageType)
+-- Listen for unauthorized prints while verifying:
+local printConnection
+printConnection = LogService.MessageOut:Connect(function(message, messageType)
+    if isVerified then return end
     local msgStr = tostring(message or "")
     if not isAuthorizedPrint(msgStr) then
-        reportTamperAndHalt("LivePrint_" .. msgStr:sub(1, 30))
+        reportTamperAndHalt("PrePrint_" .. msgStr:sub(1, 30))
     end
 end)
 
--- Check core function hooks
+-- Check function integrity
 local sensitiveFunctions = {
     print = print,
     warn = warn,
@@ -181,12 +193,18 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- ====================================================================
--- 7. STRICT PAYLOAD EXECUTION
+-- 7. EXECUTE SEALED PAYLOAD (Disconnects monitor so payload prints freely)
 -- ====================================================================
 local token = response.Headers and (response.Headers["x-tarantula-token"] or response.Headers["X-Tarantula-Token"])
 if not token then
     reportTamperAndHalt("Missing_server_token")
     return
+end
+
+-- Verification passed: unlock payload prints
+isVerified = true
+if printConnection and printConnection.Disconnect then
+    pcall(function() printConnection:Disconnect() end)
 end
 
 if getgenv then getgenv()._TARANTULA_TOKEN = token end
@@ -197,10 +215,7 @@ if not executePayload then
     return
 end
 
--- Temporarily authorize prints for the authentic payload
-payloadExecuting = true
 local execOk, execErr = pcall(executePayload)
-payloadExecuting = false
 
 if not getgenv or getgenv()._TARANTULA_VALIDATED ~= token then
     reportTamperAndHalt("Unauthorized_or_fake_payload_executed")
