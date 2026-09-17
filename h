@@ -97,52 +97,30 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. PRINT & LOG SURVEILLANCE (Pre-Verification Only)
+-- 5. REAL-TIME PRINT MONITOR (Pre-Verification)
 -- ====================================================================
 local LogService = game:GetService("LogService")
 
--- Whitelist filter: allows all official whitelist prints and Roblox engine startup logs
 local function isAuthorizedPrint(msg)
     if isVerified then return true end
-    
-    -- Whitelist and payload messages
+    -- Whitelist prints
     if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("fabian") then
         return true
     end
-    
-    -- Roblox internal engine messages
-    if msg:find("The Current Identity") 
-        or msg:find("Roblox Version") 
-        or msg:find("Replication") 
-        or msg:find("HttpTrace")
-        or msg:find("CoreGui") then
+    -- System/Roblox internal prints
+    if msg:find("The Current Identity") or msg:find("Roblox Version") or msg:find("Replication") or msg:find("HttpTrace") or msg:find("CoreGui") then
         return true
     end
-    
     return false
 end
 
--- Check prints executed before the loader:
-pcall(function()
-    local logs = LogService:GetLogHistory()
-    if #logs > 0 then
-        local lastMsg = tostring(logs[#logs].message or "")
-        if not isAuthorizedPrint(lastMsg) and #lastMsg > 0 then
-            reportTamperAndHalt("PrePrint_" .. lastMsg:sub(1, 30))
-            return
-        end
-    end
-end)
-
-if isBlacklisted then return end
-
--- Listen for unauthorized prints while verifying:
+-- Monitor any new print while authenticating
 local printConnection
 printConnection = LogService.MessageOut:Connect(function(message, messageType)
     if isVerified then return end
     local msgStr = tostring(message or "")
     if not isAuthorizedPrint(msgStr) then
-        reportTamperAndHalt("PrePrint_" .. msgStr:sub(1, 30))
+        reportTamperAndHalt("PrePrint_" .. msgStr:sub(1, 25))
     end
 end)
 
@@ -201,7 +179,7 @@ if not token then
     return
 end
 
--- DISCONNECT PRINT MONITOR: The payload is verified, so its prints are 100% legal
+-- Unlock: payload is verified, disconnect print monitor
 isVerified = true
 if printConnection and printConnection.Disconnect then
     pcall(function() printConnection:Disconnect() end)
