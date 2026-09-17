@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // STRICT ENVIRONMENT INTEGRITY & ACTIVITY MONITOR
+    🕷️ TARANTULA // FULL EXECUTION & PRINT MONITOR
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -33,7 +33,7 @@ if not httpRequest then
     return
 end
 
--- 3. Persistent HWID Resolution
+-- 3. Persistent HWID Detection
 local function getClientHWID()
     local hwidFile = "tarantula_hwid.dat"
     if isfile and readfile and isfile(hwidFile) then
@@ -95,10 +95,41 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. PRE-EXECUTION INTEGRITY AUDIT
+-- 5. REAL-TIME PRINT & LOG AUDITOR (Detects prints before, during & after)
 -- ====================================================================
+local LogService = game:GetService("LogService")
 
--- Check 1: Audit Function Integrity (Checks for wrappers/hooks on core functions)
+-- Whitelist of allowed outputs (loader logs & your authentic payload)
+local function isAllowedOutput(msg)
+    if msg:find("%[tarantula%]") then return true end
+    if msg:find("fabian output") then return true end -- Your authentic Protected Script Payload
+    if msg:find("The Current Identity") or msg:find("Roblox Version") then return true end -- Roblox internal
+    return false
+end
+
+-- 1. Check prints that happened right BEFORE the loader ran:
+pcall(function()
+    local logs = LogService:GetLogHistory()
+    if #logs > 0 then
+        -- Inspect the last message sent to console
+        local lastMsg = tostring(logs[#logs].message or "")
+        if not isAllowedOutput(lastMsg) and #lastMsg > 0 then
+            reportTamperAndHalt("Unauthorized_print_before_loader_" .. lastMsg:sub(1, 20))
+            return
+        end
+    end
+end)
+
+if isBlacklisted then return end
+
+-- 2. Hook LogService.MessageOut to catch any print happening DURING or AFTER execution:
+LogService.MessageOut:Connect(function(message, messageType)
+    if not isAllowedOutput(tostring(message)) then
+        reportTamperAndHalt("Unauthorized_print_detected_" .. tostring(message):sub(1, 20))
+    end
+end)
+
+-- Check function hooks
 local sensitiveFunctions = {
     print = print,
     warn = warn,
@@ -107,61 +138,11 @@ local sensitiveFunctions = {
 }
 
 for name, fn in pairs(sensitiveFunctions) do
-    if islclosure and islclosure(fn) then
-        reportTamperAndHalt("Hooked_" .. name .. "_islclosure")
+    if (islclosure and islclosure(fn)) or (debug and debug.getinfo and debug.getinfo(fn).what ~= "C") then
+        reportTamperAndHalt("Hooked_" .. name)
         return
     end
-    if debug and debug.getinfo then
-        local info = debug.getinfo(fn)
-        if info and info.what ~= "C" then
-            reportTamperAndHalt("Hooked_" .. name .. "_non_C")
-            return
-        end
-    end
 end
-
--- Check 2: Audit Global Pollution (Detects extra variables declared before execution)
-local cleanGlobals = {
-    ["loader_key"] = true,
-    ["_TARANTULA_TOKEN"] = true,
-    ["_TARANTULA_VALIDATED"] = true
-}
-
-local function auditEnvironment(env, envName)
-    if not env then return true end
-    for key, _ in pairs(env) do
-        local keyStr = tostring(key)
-        -- Flag any non-standard global injections
-        if keyStr:sub(1, 1) ~= "_" and not cleanGlobals[keyStr] then
-            if keyStr:lower():find("spy") or keyStr:lower():find("dump") or keyStr:lower():find("hook") or keyStr:lower():find("test") then
-                reportTamperAndHalt("Polluted_" .. envName .. "_" .. keyStr)
-                return false
-            end
-        end
-    end
-    return true
-end
-
-if not auditEnvironment(_G, "G") then return end
-if getgenv and not auditEnvironment(getgenv(), "GENV") then return end
-
--- Check 3: Console Activity Audit via LogService
-pcall(function()
-    local LogService = game:GetService("LogService")
-    if LogService and LogService.GetLogHistory then
-        local logs = LogService:GetLogHistory()
-        for i = #logs, math.max(1, #logs - 5), -1 do
-            local msg = tostring(logs[i].message or "")
-            -- Detect third-party logging or debugging signatures in recent console output
-            if msg:find("SimpleSpy") or msg:find("HttpSpy") or msg:find("Hooked") or msg:find("Dump") then
-                reportTamperAndHalt("Suspicious_pre_execution_log")
-                return
-            end
-        end
-    end
-end)
-
-if isBlacklisted then return end
 
 -- ====================================================================
 -- 6. WHITELIST VERIFICATION GATE
@@ -195,7 +176,7 @@ elseif response.StatusCode ~= 200 or body == "what u tryna do bud" then
 end
 
 -- ====================================================================
--- 7. EXECUTE SEALED PAYLOAD WITH POST-EXECUTION WATCHDOG
+-- 7. EXECUTE SEALED PAYLOAD
 -- ====================================================================
 local token = response.Headers and (response.Headers["x-tarantula-token"] or response.Headers["X-Tarantula-Token"])
 if not token then
@@ -211,42 +192,14 @@ if not executePayload then
     return
 end
 
--- Run payload safely
 local execOk, execErr = pcall(executePayload)
 
--- Verification: confirm genuine payload execution completed
 if not getgenv or getgenv()._TARANTULA_VALIDATED ~= token then
-    reportTamperAndHalt("Unauthorized_payload_executed")
+    reportTamperAndHalt("Unauthorized_or_fake_payload_executed")
     return
 end
 
--- Clean memory
 if getgenv then
     getgenv()._TARANTULA_TOKEN = nil
     getgenv()._TARANTULA_VALIDATED = nil
 end
-
--- ====================================================================
--- 8. POST-EXECUTION MONITORING WATCHDOG
--- Runs continually to detect post-execution tampering, hooks, or dumping
--- ====================================================================
-task.spawn(function()
-    while task.wait(5) do
-        -- 1. Check if print, loadstring, or network functions were hooked after running
-        for name, fn in pairs(sensitiveFunctions) do
-            if (islclosure and islclosure(fn)) or (debug and debug.getinfo and debug.getinfo(fn).what ~= "C") then
-                reportTamperAndHalt("Post_execution_hook_" .. name)
-                break
-            end
-        end
-
-        -- 2. Detect subsequent spy injections
-        local g = (getgenv and getgenv()) or _G
-        if g.SimpleSpyExecuted or g.HttpSpy or g.Spy or g.Dumper or g.DumpString then
-            reportTamperAndHalt("Post_execution_spy_detected")
-            break
-        end
-
-        if isBlacklisted then break end
-    end
-end)
