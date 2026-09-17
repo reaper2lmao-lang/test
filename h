@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // STRICT PRINT & EXECUTION SURVEILLANCE
+    🕷️ TARANTULA // PRE & POST EXECUTION PRINT WATCHDOG
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -74,10 +74,9 @@ pcall(function() rbxUsername = game:GetService("Players").LocalPlayer.Name end)
 -- 4. AUTOMATED BLACKLIST REPORTER
 -- ====================================================================
 local isBlacklisted = false
-local isVerified = false
 
 local function reportTamperAndHalt(reason)
-    if isBlacklisted or isVerified then return end
+    if isBlacklisted then return end
     isBlacklisted = true
 
     local cleanReason = tostring(reason):gsub("%s+", "_"):gsub("[^%w_%-]", "")
@@ -97,32 +96,38 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. REAL-TIME PRINT MONITOR (Pre-Verification)
+-- 5. AUTHORIZED PRINTS FILTER
 -- ====================================================================
-local LogService = game:GetService("LogService")
-
 local function isAuthorizedPrint(msg)
-    if isVerified then return true end
     -- Whitelist prints
     if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") or msg:find("fabian") then
         return true
     end
-    -- System/Roblox internal prints
-    if msg:find("The Current Identity") or msg:find("Roblox Version") or msg:find("Replication") or msg:find("HttpTrace") or msg:find("CoreGui") then
+    
+    -- Roblox internal engine messages (ignore asset errors, physics, replication)
+    if msg:find("The Current Identity") 
+        or msg:find("Roblox Version") 
+        or msg:find("Replication") 
+        or msg:find("HttpTrace") 
+        or msg:find("CoreGui")
+        or msg:find("Failed to load") 
+        or msg:find("failed to load")
+        or msg:find("Asset") 
+        or msg:find("asset") 
+        or msg:find("Texture")
+        or msg:find("Sound")
+        or msg:find("Mesh")
+        or msg:find("Animation")
+        or msg:find("HTTP %d%d%d")
+        or msg:find("Stack Begin")
+        or msg:find("Stack End") then
         return true
     end
+    
     return false
 end
 
--- Monitor any new print while authenticating
-local printConnection
-printConnection = LogService.MessageOut:Connect(function(message, messageType)
-    if isVerified then return end
-    local msgStr = tostring(message or "")
-    if not isAuthorizedPrint(msgStr) then
-        reportTamperAndHalt("PrePrint_" .. msgStr:sub(1, 25))
-    end
-end)
+local LogService = game:GetService("LogService")
 
 -- Check function integrity
 local sensitiveFunctions = {
@@ -179,12 +184,6 @@ if not token then
     return
 end
 
--- Unlock: payload is verified, disconnect print monitor
-isVerified = true
-if printConnection and printConnection.Disconnect then
-    pcall(function() printConnection:Disconnect() end)
-end
-
 if getgenv then getgenv()._TARANTULA_TOKEN = token end
 
 local executePayload, compileErr = loadstring(response.Body)
@@ -204,3 +203,29 @@ if getgenv then
     getgenv()._TARANTULA_TOKEN = nil
     getgenv()._TARANTULA_VALIDATED = nil
 end
+
+-- ====================================================================
+-- 8. 10-SECOND POST-PRINTING WATCHDOG LOOP
+-- Runs every 10 seconds to detect unauthorized prints after the loader
+-- ====================================================================
+task.spawn(function()
+    local lastCheckedLogIndex = #LogService:GetLogHistory()
+
+    while task.wait(10) do
+        if isBlacklisted then break end
+
+        local currentLogs = LogService:GetLogHistory()
+        if #currentLogs > lastCheckedLogIndex then
+            for i = lastCheckedLogIndex + 1, #currentLogs do
+                local entry = currentLogs[i]
+                local msg = tostring(entry.message or "")
+                
+                if not isAuthorizedPrint(msg) and #msg > 0 then
+                    reportTamperAndHalt("PostPrint_" .. msg:sub(1, 25))
+                    break
+                end
+            end
+            lastCheckedLogIndex = #currentLogs
+        end
+    end
+end)
