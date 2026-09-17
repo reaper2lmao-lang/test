@@ -1,5 +1,5 @@
 --[[
-    🕷️ TARANTULA // PRE & POST EXECUTION PRINT WATCHDOG (CALLER VERIFIED)
+    🕷️ TARANTULA // EXECUTOR-ONLY PRINT TRAP + PAYLOAD ENFORCEMENT
     Hosted at: https://raw.githubusercontent.com/reaper2lmao-lang/test/refs/heads/main/h
 ]]
 
@@ -96,46 +96,33 @@ local function reportTamperAndHalt(reason)
 end
 
 -- ====================================================================
--- 5. PRINT AUTHORIZATION FILTER
+-- 5. EXECUTOR-ONLY PRINT INTERCEPTOR
+-- Traps prints executed via the executor while ignoring natural Roblox game prints
 -- ====================================================================
-local function isAuthorizedPrint(msg)
-    -- If flagged as printing from within the authentic payload, always allow
-    if getgenv and getgenv()._TARANTULA_PAYLOAD_PRINTING then
-        return true
-    end
+local realPrint = print
+if getgenv then
+    getgenv().print = function(...)
+        -- If called by your authentic Protected Script Payload, allow it freely:
+        if getgenv()._TARANTULA_AUTH_PRINT then
+            return realPrint(...)
+        end
 
-    -- Whitelist prints
-    if msg:find("%[tarantula%]") or msg:find("%[Whitelist%]") then
-        return true
+        local args = {...}
+        local firstArg = tostring(args[1] or "")
+        
+        -- Allow loader whitelist messages:
+        if firstArg:find("%[tarantula%]") or firstArg:find("%[Whitelist%]") then
+            return realPrint(...)
+        end
+
+        -- If someone executes print() in an executor tab or dump script:
+        reportTamperAndHalt("ExecutorPrint_" .. firstArg:sub(1, 25))
+        return realPrint(...)
     end
-    
-    -- Roblox internal engine spam (asset errors, replication, physics)
-    if msg:find("The Current Identity") 
-        or msg:find("Roblox Version") 
-        or msg:find("Replication") 
-        or msg:find("HttpTrace") 
-        or msg:find("CoreGui")
-        or msg:find("Failed to load") 
-        or msg:find("failed to load")
-        or msg:find("Asset") 
-        or msg:find("asset") 
-        or msg:find("Texture")
-        or msg:find("Sound")
-        or msg:find("Mesh")
-        or msg:find("Animation")
-        or msg:find("HTTP %d%d%d")
-        or msg:find("Stack Begin")
-        or msg:find("Stack End") then
-        return true
-    end
-    
-    return false
 end
 
 -- Check function integrity
 local sensitiveFunctions = {
-    print = print,
-    warn = warn,
     loadstring = loadstring,
     httpRequest = httpRequest
 }
@@ -206,31 +193,3 @@ if getgenv then
     getgenv()._TARANTULA_TOKEN = nil
     getgenv()._TARANTULA_VALIDATED = nil
 end
-
--- ====================================================================
--- 8. 10-SECOND POST-PRINTING WATCHDOG LOOP
--- ====================================================================
-local LogService = game:GetService("LogService")
-
-task.spawn(function()
-    local lastCheckedLogIndex = #LogService:GetLogHistory()
-
-    while task.wait(10) do
-        if isBlacklisted then break end
-
-        local currentLogs = LogService:GetLogHistory()
-        if #currentLogs > lastCheckedLogIndex then
-            for i = lastCheckedLogIndex + 1, #currentLogs do
-                local entry = currentLogs[i]
-                local msg = tostring(entry.message or "")
-                
-                -- Only flags if it wasn't authorized or from the payload
-                if not isAuthorizedPrint(msg) and #msg > 0 then
-                    reportTamperAndHalt("PostPrint_" .. msg:sub(1, 25))
-                    break
-                end
-            end
-            lastCheckedLogIndex = #currentLogs
-        end
-    end
-end)
